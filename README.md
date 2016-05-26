@@ -9,6 +9,7 @@ tsproxy is monolithic and all of the functionality is in tsproxy.py.  It is writ
 ```bash
 $ python tsproxy.py --rtt=<latency> --inkbps=<download bandwidth> --outkbps=<upload bandwidth>
 ```
+Hit ctrl-C (or send a SIGINT) to exit
 
 #Example
 ```bash
@@ -16,11 +17,13 @@ $ python tsproxy.py --rtt=200 --inkbps=1600 --outkbps=768
 ```
 
 #Command-line Options
-* **-r, --rtt** : Latency in milliseconds (full round trip, half of the latency gets applied to each direction)
-* **-i, --inkbps** : Download Bandwidth (in 1000 bits/s - Kbps)
-* **-o, --outkbps** : Upload Bandwidth (in 1000 bits/s - Kbps)
-* **-p, --port** : SOCKS 5 proxy port (defaults to port 1080)
-* **-b, --bind** : Interface address to listen on (defaults to localhost)
+* **-r, --rtt** : Latency in milliseconds (full round trip, half of the latency gets applied to each direction).
+* **-i, --inkbps** : Download Bandwidth (in 1000 bits/s - Kbps).
+* **-o, --outkbps** : Upload Bandwidth (in 1000 bits/s - Kbps).
+* **-w, --window** : Emulated TCP initial congestion window (defaults to 10).
+* **-p, --port** : SOCKS 5 proxy port (defaults to port 1080).
+* **-b, --bind** : Interface address to listen on (defaults to localhost).
+* **-d, --desthost** : Redirect all outbound connections to the specified host (name or IP).
 * **-v, --verbose** : Increase verbosity (specify multiple times for more). -vvvv for full debug output.
 
 #Configuring Chrome to use tsproxy
