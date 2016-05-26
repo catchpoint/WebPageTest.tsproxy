@@ -288,7 +288,7 @@ class Socks5Server(asyncore.dispatcher):
       self.listen(5)
       self.current_client_id = 0
     except:
-      logging.critical("Unable to listen on {0}:{1}. Is the port already in use?".format(host, port))
+      print "Unable to listen on {0}:{1}. Is the port already in use?".format(host, port)
       exit(1)
 
   def handle_accept(self):
@@ -527,9 +527,9 @@ def main():
   in_pipe = TSPipe(TSPipe.PIPE_IN, options.rtt / 2000.0, options.inkbps)
   out_pipe = TSPipe(TSPipe.PIPE_OUT, options.rtt / 2000.0, options.outkbps)
 
-  logging.error('Starting Socks5 proxy server on {0}:{1:d}'.format(options.bind, options.port))
   signal.signal(signal.SIGINT, signal_handler)
   server = Socks5Server(options.bind, options.port)
+  print 'Started Socks5 proxy server on {0}:{1:d}. Hit Ctrl-C to exit.'.format(options.bind, options.port)
   run_loop()
 
 def signal_handler(signal, frame):
