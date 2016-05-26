@@ -151,15 +151,19 @@ class TCPConnection(asyncore.dispatcher):
   STATE_CONNECTED = 3
 
   def __init__(self, client_id):
+    global options
     asyncore.dispatcher.__init__(self)
     self.client_id = client_id
     self.state = self.STATE_IDLE
-    self.buffer = '';
+    self.buffer = ''
     self.addr = None
     self.dns_thread = None
     self.hostname = None
     self.port = None
+    self.needs_config = True
     self.needs_close = False
+    self.read_available = False
+    self.window_available = options.window
 
   def SendMessage(self, type, message):
     message['message'] = type
@@ -168,7 +172,14 @@ class TCPConnection(asyncore.dispatcher):
 
   def handle_message(self, message):
     if message['message'] == 'data' and 'data' in message and len(message['data']) and self.state == self.STATE_CONNECTED:
-      self.buffer += message['data']
+      if not self.needs_close:
+        self.buffer += message['data']
+        self.SendMessage('ack', {})
+    elif message['message'] == 'ack':
+      # Increase the congestion window by 2 packets for every packet transmitted up to 350 packets (~512KB)
+      self.window_available = min(self.window_available + 2, 350)
+      if self.read_available:
+        self.handle_read()
     elif message['message'] == 'resolve':
       self.HandleResolve(message)
     elif message['message'] == 'connect':
@@ -208,7 +219,9 @@ class TCPConnection(asyncore.dispatcher):
     return (len(self.buffer) > 0 and self.state == self.STATE_CONNECTED)
 
   def handle_write(self):
-    self.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    if self.needs_config:
+      self.needs_config = False
+      self.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     sent = self.send(self.buffer)
     logging.debug('[{0:d}] TCP => {1:d} byte(s)'.format(self.client_id, sent))
     self.buffer = self.buffer[sent:]
@@ -217,10 +230,22 @@ class TCPConnection(asyncore.dispatcher):
       self.handle_close()
 
   def handle_read(self):
-    data = self.recv(1460)
-    if data and self.state == self.STATE_CONNECTED:
-      logging.debug('[{0:d}] TCP <= {1:d} byte(s)'.format(self.client_id, len(data)))
-      self.SendMessage('data', {'data': data})
+    if self.window_available == 0:
+      self.read_available = True
+      return
+    self.read_available = False
+    try:
+      while self.window_available > 0:
+        data = self.recv(1460)
+        if data:
+          if self.state == self.STATE_CONNECTED:
+            self.window_available -= 1
+            logging.debug('[{0:d}] TCP <= {1:d} byte(s)'.format(self.client_id, len(data)))
+            self.SendMessage('data', {'data': data})
+        else:
+          return
+    except:
+      pass
 
   def HandleResolve(self, message):
     global in_pipe
@@ -285,6 +310,7 @@ class Socks5Connection(asyncore.dispatcher):
   STATE_CONNECTED = 4
 
   def __init__(self, connected_socket, client_id):
+    global options
     asyncore.dispatcher.__init__(self, connected_socket)
     self.client_id = client_id
     self.state = self.STATE_WAITING_FOR_HANDSHAKE
@@ -295,7 +321,10 @@ class Socks5Connection(asyncore.dispatcher):
     self.requested_address = None
     self.buffer = ''
     self.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-    self.needs_close = False;
+    self.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1460)
+    self.needs_close = False
+    self.read_available = False
+    self.window_available = options.window
 
   def SendMessage(self, type, message):
     message['message'] = type
@@ -306,6 +335,12 @@ class Socks5Connection(asyncore.dispatcher):
     if message['message'] == 'data' and 'data' in message and len(message['data']) and self.state == self.STATE_CONNECTED:
       if not self.needs_close:
         self.buffer += message['data']
+        self.SendMessage('ack', {})
+    elif message['message'] == 'ack':
+      # Increase the congestion window by 2 packets for every packet transmitted up to 350 packets (~512KB)
+      self.window_available = min(self.window_available + 2, 350)
+      if self.read_available:
+        self.handle_read()
     elif message['message'] == 'resolved':
       self.HandleResolved(message)
     elif message['message'] == 'connected':
@@ -330,66 +365,77 @@ class Socks5Connection(asyncore.dispatcher):
   def handle_read(self):
     global connections
     global dns_cache
-    # Consume in up-to packet-sized chunks (TCP packet payload as 1460 bytes from 1500 byte ethernet frames)
-    data = self.recv(1460)
-    data_len = len(data)
-    if data_len:
-      if self.state == self.STATE_CONNECTED:
-        logging.debug('[{0:d}] SOCKS => {1:d} byte(s)'.format(self.client_id, data_len))
-        self.SendMessage('data', {'data': data})
-      elif self.state == self.STATE_WAITING_FOR_HANDSHAKE:
-        self.state = self.STATE_ERROR #default to an error state, set correctly if things work out
-        if data_len >= 2 and ord(data[0]) == 0x05:
-          supports_no_auth = False
-          auth_count = ord(data[1])
-          if data_len == auth_count + 2:
-            for i in range(auth_count):
-              offset = i + 2
-              if ord(data[offset]) == 0:
-                supports_no_auth = True
-          if supports_no_auth:
-            # Respond with a message that "No Authentication" was agreed to
-            logging.info('[{0:d}] New Socks5 client'.format(self.client_id))
-            response = chr(0x05) + chr(0x00)
-            self.state = self.STATE_WAITING_FOR_CONNECT_REQUEST
-            self.buffer += response
-      elif self.state == self.STATE_WAITING_FOR_CONNECT_REQUEST:
-        self.state = self.STATE_ERROR #default to an error state, set correctly if things work out
-        if data_len >= 10 and ord(data[0]) == 0x05 and ord(data[2]) == 0x00:
-          if ord(data[1]) == 0x01: #TCP connection (only supported method for now)
-            connections[self.client_id]['server'] = TCPConnection(self.client_id)
-          self.requested_address = data[3:]
-          port_offset = 0
-          if ord(data[3]) == 0x01:
-            port_offset = 8
-            self.ip = '{0:d}.{1:d}.{2:d}.{3:d}'.format(ord(data[4]), ord(data[5]), ord(data[6]), ord(data[7]))
-          elif ord(data[3]) == 0x03:
-            name_len = ord(data[4])
-            if data_len >= 6 + name_len:
-              port_offset = 5 + name_len
-              self.hostname = data[5:5 + name_len]
-          elif ord(data[3]) == 0x04 and data_len >= 22:
-            port_offset = 20
-            self.ip = '';
-            for i in range(16):
-              self.ip += '{0:02x}'.format(ord(data[4 + i]))
-              if i % 2 and i < 15:
-                self.ip += ':'
-          if port_offset and connections[self.client_id]['server'] is not None:
-            self.port = 256 * ord(data[port_offset]) + ord(data[port_offset + 1])
-            if self.port:
-              if self.ip is None and self.hostname is not None:
-                if self.hostname in dns_cache:
-                  self.state = self.STATE_CONNECTING
-                  self.addresses = dns_cache[self.hostname]
-                  self.SendMessage('connect', {'addresses': self.addresses, 'port': self.port})
-                else:
-                  self.state = self.STATE_RESOLVING
-                  self.SendMessage('resolve', {'hostname': self.hostname, 'port': self.port})
-              elif self.ip is not None:
-                self.state = self.STATE_CONNECTING
-                self.addresses = socket.getaddrinfo(self.ip, self.port)
-                self.SendMessage('connect', {'addresses': self.addresses, 'port': self.port})
+    if self.window_available == 0:
+      self.read_available = True
+      return
+    self.read_available = False
+    try:
+      while self.window_available > 0:
+        # Consume in up-to packet-sized chunks (TCP packet payload as 1460 bytes from 1500 byte ethernet frames)
+        data = self.recv(1460)
+        if data:
+          data_len = len(data)
+          if self.state == self.STATE_CONNECTED:
+            logging.debug('[{0:d}] SOCKS => {1:d} byte(s)'.format(self.client_id, data_len))
+            self.window_available -= 1
+            self.SendMessage('data', {'data': data})
+          elif self.state == self.STATE_WAITING_FOR_HANDSHAKE:
+            self.state = self.STATE_ERROR #default to an error state, set correctly if things work out
+            if data_len >= 2 and ord(data[0]) == 0x05:
+              supports_no_auth = False
+              auth_count = ord(data[1])
+              if data_len == auth_count + 2:
+                for i in range(auth_count):
+                  offset = i + 2
+                  if ord(data[offset]) == 0:
+                    supports_no_auth = True
+              if supports_no_auth:
+                # Respond with a message that "No Authentication" was agreed to
+                logging.info('[{0:d}] New Socks5 client'.format(self.client_id))
+                response = chr(0x05) + chr(0x00)
+                self.state = self.STATE_WAITING_FOR_CONNECT_REQUEST
+                self.buffer += response
+          elif self.state == self.STATE_WAITING_FOR_CONNECT_REQUEST:
+            self.state = self.STATE_ERROR #default to an error state, set correctly if things work out
+            if data_len >= 10 and ord(data[0]) == 0x05 and ord(data[2]) == 0x00:
+              if ord(data[1]) == 0x01: #TCP connection (only supported method for now)
+                connections[self.client_id]['server'] = TCPConnection(self.client_id)
+              self.requested_address = data[3:]
+              port_offset = 0
+              if ord(data[3]) == 0x01:
+                port_offset = 8
+                self.ip = '{0:d}.{1:d}.{2:d}.{3:d}'.format(ord(data[4]), ord(data[5]), ord(data[6]), ord(data[7]))
+              elif ord(data[3]) == 0x03:
+                name_len = ord(data[4])
+                if data_len >= 6 + name_len:
+                  port_offset = 5 + name_len
+                  self.hostname = data[5:5 + name_len]
+              elif ord(data[3]) == 0x04 and data_len >= 22:
+                port_offset = 20
+                self.ip = ''
+                for i in range(16):
+                  self.ip += '{0:02x}'.format(ord(data[4 + i]))
+                  if i % 2 and i < 15:
+                    self.ip += ':'
+              if port_offset and connections[self.client_id]['server'] is not None:
+                self.port = 256 * ord(data[port_offset]) + ord(data[port_offset + 1])
+                if self.port:
+                  if self.ip is None and self.hostname is not None:
+                    if self.hostname in dns_cache:
+                      self.state = self.STATE_CONNECTING
+                      self.addresses = dns_cache[self.hostname]
+                      self.SendMessage('connect', {'addresses': self.addresses, 'port': self.port})
+                    else:
+                      self.state = self.STATE_RESOLVING
+                      self.SendMessage('resolve', {'hostname': self.hostname, 'port': self.port})
+                  elif self.ip is not None:
+                    self.state = self.STATE_CONNECTING
+                    self.addresses = socket.getaddrinfo(self.ip, self.port)
+                    self.SendMessage('connect', {'addresses': self.addresses, 'port': self.port})
+        else:
+          return
+    except:
+      pass
 
   def handle_close(self):
     logging.info('[{0:d}] Browser Connection Closed'.format(self.client_id))
@@ -505,11 +551,11 @@ def run_loop():
       last_activity = time.clock()
     if out_pipe.tick():
       last_activity = time.clock()
-    # Every 1000 loops (~1 second) check to see if it is a good time to do a gc
+    # Every 500 loops (~0.5 second) check to see if it is a good time to do a gc
     if gc_check_count > 1000:
       gc_check_count = 0
-      # manually gc after 10 seconds of idle
-      if time.clock() - last_activity > 10:
+      # manually gc after 5 seconds of idle
+      if time.clock() - last_activity >= 5:
         last_activity = time.clock()
         logging.debug("Triggering manual GC");
         gc.collect()
