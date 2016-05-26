@@ -28,6 +28,7 @@ in_pipe = None
 out_pipe = None
 must_exit = False
 options = None
+dest_addresses = None
 connections = {}
 dns_cache = {}
 
@@ -229,15 +230,21 @@ class TCPConnection(asyncore.dispatcher):
     if 'port' in message:
       self.port = message['port']
     logging.info('[{0:d}] Resolving {1}:{2:d}'.format(self.client_id, self.hostname, self.port))
-    self.state = self.STATE_RESOLVING
-    self.dns_thread = AsyncDNS(self.client_id, self.hostname, self.port, in_pipe);
-    self.dns_thread.start()
+    if dest_addresses is not None:
+      self.SendMessage('resolved', {'addresses': dest_addresses})
+    else:
+      self.state = self.STATE_RESOLVING
+      self.dns_thread = AsyncDNS(self.client_id, self.hostname, self.port, in_pipe);
+      self.dns_thread.start()
 
   def HandleConnect(self, message):
     if 'addresses' in message and len(message['addresses']):
       logging.info('[{0:d}] Connecting'.format(self.client_id))
       self.state = self.STATE_CONNECTING
-      self.addr = message['addresses'][0]
+      if dest_addresses is not None:
+        self.addr = dest_addresses[0]
+      else:
+        self.addr = message['addresses'][0]
       self.create_socket(self.addr[0], socket.SOCK_STREAM)
       self.connect(self.addr[4])
 
@@ -436,15 +443,18 @@ def main():
   global options
   global in_pipe
   global out_pipe
+  global dest_addresses
   import argparse
   parser = argparse.ArgumentParser(description='Traffic-shaping socks5 proxy.',
                                    prog='tsproxy')
   parser.add_argument('-v', '--verbose', action='count', help="Increase verbosity (specify multiple times for more). -vvvv for full debug output.")
-  parser.add_argument('-b', '--bind', default='localhost', help="Server interface address (defaults to localhost)")
-  parser.add_argument('-p', '--port', type=int, default=1080, help="Server port (defaults to 1080)")
-  parser.add_argument('-r', '--rtt', type=float, default=.0, help="Round Trip Time Latency (in ms)")
-  parser.add_argument('-i', '--inkbps', type=float, default=.0, help="Download Bandwidth (in 1000 bits/s - Kbps)")
-  parser.add_argument('-o', '--outkbps', type=float, default=.0, help="Upload Bandwidth (in 1000 bits/s - Kbps)")
+  parser.add_argument('-b', '--bind', default='localhost', help="Server interface address (defaults to localhost).")
+  parser.add_argument('-p', '--port', type=int, default=1080, help="Server port (defaults to 1080).")
+  parser.add_argument('-r', '--rtt', type=float, default=.0, help="Round Trip Time Latency (in ms).")
+  parser.add_argument('-i', '--inkbps', type=float, default=.0, help="Download Bandwidth (in 1000 bits/s - Kbps).")
+  parser.add_argument('-o', '--outkbps', type=float, default=.0, help="Upload Bandwidth (in 1000 bits/s - Kbps).")
+  parser.add_argument('-w', '--window', type=int, default=10, help="Emulated TCP initial congestion window (defaults to 10).")
+  parser.add_argument('-d', '--desthost', help="Redirect all outbound connections to the specified host.")
   options = parser.parse_args()
 
   # Set up logging
@@ -458,6 +468,10 @@ def main():
   elif options.verbose >= 4:
     log_level = logging.DEBUG
   logging.basicConfig(level=log_level, format="%(asctime)s.%(msecs)03d - %(message)s", datefmt="%H:%M:%S")
+
+  # Resolve the address for a rewrite destination host if one was specified
+  if options.desthost:
+    dest_addresses = socket.getaddrinfo(options.desthost, 80)
 
   # Set up the pipes.  1/2 of the latency gets applied in each direction (and /1000 to convert to seconds)
   in_pipe = TSPipe(TSPipe.PIPE_IN, options.rtt / 2000.0, options.inkbps)
