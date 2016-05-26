@@ -9,6 +9,7 @@ tsproxy is monolithic and all of the functionality is in tsproxy.py.  It is writ
 ```bash
 $ python tsproxy.py --rtt=<latency> --inkbps=<download bandwidth> --outkbps=<upload bandwidth>
 ```
+Hit ctrl-C (or send a SIGINT) to exit
 
 #Example
 ```bash
@@ -16,11 +17,13 @@ $ python tsproxy.py --rtt=200 --inkbps=1600 --outkbps=768
 ```
 
 #Command-line Options
-* **-r, --rtt** : Latency in milliseconds (full round trip, half of the latency gets applied to each direction)
-* **-i, --inkbps** : Download Bandwidth (in 1000 bits/s - Kbps)
-* **-o, --outkbps** : Upload Bandwidth (in 1000 bits/s - Kbps)
-* **-p, --port** : SOCKS 5 proxy port (defaults to port 1080)
-* **-b, --bind** : Interface address to listen on (defaults to localhost)
+* **-r, --rtt** : Latency in milliseconds (full round trip, half of the latency gets applied to each direction).
+* **-i, --inkbps** : Download Bandwidth (in 1000 bits/s - Kbps).
+* **-o, --outkbps** : Upload Bandwidth (in 1000 bits/s - Kbps).
+* **-w, --window** : Emulated TCP initial congestion window (defaults to 10).
+* **-p, --port** : SOCKS 5 proxy port (defaults to port 1080).
+* **-b, --bind** : Interface address to listen on (defaults to localhost).
+* **-d, --desthost** : Redirect all outbound connections to the specified host (name or IP).
 * **-v, --verbose** : Increase verbosity (specify multiple times for more). -vvvv for full debug output.
 
 #Configuring Chrome to use tsproxy
@@ -30,7 +33,4 @@ Add a --proxy-server command-line option.
 ```
 
 #Known Shortcomings/Issues
-* The proxy reads all available data from the browser/server and applies traffic-shaping before sending it through.  That means that:
-  * uploading/sending data will appear to go out from the browser far faster than it actually gets through to the server (completing the upload will still take the same amount of time).
-  * Resources being downloaded may stack up behind each other instead of sharing the available bandwidth (no tcp flow control)
-* DNS lookups on OSX (and FreeBSD) will block each other when it comes to actually resolving.  DNS in Python on most platforms is allowed to run concurrently in threads (which tsproxy does) but on OSX and FreeBSD it is not thread-safe and there is a lock around the actual lookups.  For most cases this isn't an issue because the latency isn't added on the actual DNS lookup (it is from the browser perspective but it is added outside of the actual lookup)
+* DNS lookups on OSX (and FreeBSD) will block each other when it comes to actually resolving.  DNS in Python on most platforms is allowed to run concurrently in threads (which tsproxy does) but on OSX and FreeBSD it is not thread-safe and there is a lock around the actual lookups.  For most cases this isn't an issue because the latency isn't added on the actual DNS lookup (it is from the browser perspective but it is added outside of the actual lookup). This is also not an issue when desthost is used to override the destination address since dns lookups will be disabled.
