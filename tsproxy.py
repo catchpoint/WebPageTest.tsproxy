@@ -64,7 +64,7 @@ class TSPipe():
         message['size'] = .0
         if 'data' in message:
           message['size'] = float(len(message['data']))
-        self.queue.put(message);
+        self.queue.put(message)
     except:
       pass
 
@@ -259,7 +259,7 @@ class TCPConnection(asyncore.dispatcher):
       self.SendMessage('resolved', {'addresses': dest_addresses})
     else:
       self.state = self.STATE_RESOLVING
-      self.dns_thread = AsyncDNS(self.client_id, self.hostname, self.port, in_pipe);
+      self.dns_thread = AsyncDNS(self.client_id, self.hostname, self.port, in_pipe)
       self.dns_thread.start()
 
   def HandleConnect(self, message):
@@ -561,7 +561,7 @@ def run_loop():
       # manually gc after 5 seconds of idle
       if time.clock() - last_activity >= 5:
         last_activity = time.clock()
-        logging.debug("Triggering manual GC");
+        logging.debug("Triggering manual GC")
         gc.collect()
     else:
       gc_check_count += 1
