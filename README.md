@@ -33,7 +33,4 @@ Add a --proxy-server command-line option.
 ```
 
 #Known Shortcomings/Issues
-* The proxy reads all available data from the browser/server and applies traffic-shaping before sending it through.  That means that:
-  * uploading/sending data will appear to go out from the browser far faster than it actually gets through to the server (completing the upload will still take the same amount of time).
-  * Resources being downloaded may stack up behind each other instead of sharing the available bandwidth (no tcp flow control)
-* DNS lookups on OSX (and FreeBSD) will block each other when it comes to actually resolving.  DNS in Python on most platforms is allowed to run concurrently in threads (which tsproxy does) but on OSX and FreeBSD it is not thread-safe and there is a lock around the actual lookups.  For most cases this isn't an issue because the latency isn't added on the actual DNS lookup (it is from the browser perspective but it is added outside of the actual lookup)
+* DNS lookups on OSX (and FreeBSD) will block each other when it comes to actually resolving.  DNS in Python on most platforms is allowed to run concurrently in threads (which tsproxy does) but on OSX and FreeBSD it is not thread-safe and there is a lock around the actual lookups.  For most cases this isn't an issue because the latency isn't added on the actual DNS lookup (it is from the browser perspective but it is added outside of the actual lookup). This is also not an issue when desthost is used to override the destination address since dns lookups will be disabled.
