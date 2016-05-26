@@ -524,8 +524,9 @@ def main():
     dest_addresses = socket.getaddrinfo(options.desthost, 80)
 
   # Set up the pipes.  1/2 of the latency gets applied in each direction (and /1000 to convert to seconds)
-  in_pipe = TSPipe(TSPipe.PIPE_IN, options.rtt / 2000.0, options.inkbps)
-  out_pipe = TSPipe(TSPipe.PIPE_OUT, options.rtt / 2000.0, options.outkbps)
+  REMOVE_TCP_OVERHEAD = 1460.0 / 1500.0
+  in_pipe = TSPipe(TSPipe.PIPE_IN, options.rtt / 2000.0, options.inkbps * REMOVE_TCP_OVERHEAD)
+  out_pipe = TSPipe(TSPipe.PIPE_OUT, options.rtt / 2000.0, options.outkbps * REMOVE_TCP_OVERHEAD)
 
   signal.signal(signal.SIGINT, signal_handler)
   server = Socks5Server(options.bind, options.port)
