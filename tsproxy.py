@@ -31,6 +31,7 @@ options = None
 dest_addresses = None
 connections = {}
 dns_cache = {}
+port_mappings = None
 
 ########################################################################################################################
 #   Traffic-shaping pipe (just passthrough for now)
@@ -271,7 +272,9 @@ class TCPConnection(asyncore.dispatcher):
       else:
         self.addr = message['addresses'][0]
       self.create_socket(self.addr[0], socket.SOCK_STREAM)
-      self.connect(self.addr[4])
+      addr = self.addr[4][0]
+      port = GetDestPort(self.addr[4][1])
+      self.connect((addr, port))
 
 
 ########################################################################################################################
@@ -494,6 +497,7 @@ def main():
   global in_pipe
   global out_pipe
   global dest_addresses
+  global port_mappings
   import argparse
   parser = argparse.ArgumentParser(description='Traffic-shaping socks5 proxy.',
                                    prog='tsproxy')
@@ -505,6 +509,7 @@ def main():
   parser.add_argument('-o', '--outkbps', type=float, default=.0, help="Upload Bandwidth (in 1000 bits/s - Kbps).")
   parser.add_argument('-w', '--window', type=int, default=10, help="Emulated TCP initial congestion window (defaults to 10).")
   parser.add_argument('-d', '--desthost', help="Redirect all outbound connections to the specified host.")
+  parser.add_argument('-m', '--mapports', help="Remap outbound ports. Comma-separated list of original:new with * as a wildcard. --mapports '443:8443,*:8080'")
   options = parser.parse_args()
 
   # Set up logging
@@ -519,9 +524,19 @@ def main():
     log_level = logging.DEBUG
   logging.basicConfig(level=log_level, format="%(asctime)s.%(msecs)03d - %(message)s", datefmt="%H:%M:%S")
 
+  # Parse any port mappings
+  if options.mapports:
+    port_mappings = {}
+    for pair in options.mapports.split(','):
+      (src, dest) = pair.split(':')
+      if src == '*':
+        port_mappings['default'] = int(dest)
+      else:
+        port_mappings[src] = int(dest)
+
   # Resolve the address for a rewrite destination host if one was specified
   if options.desthost:
-    dest_addresses = socket.getaddrinfo(options.desthost, 80)
+    dest_addresses = socket.getaddrinfo(options.desthost, GetDestPort(80))
 
   # Set up the pipes.  1/2 of the latency gets applied in each direction (and /1000 to convert to seconds)
   REMOVE_TCP_OVERHEAD = 1460.0 / 1500.0
@@ -566,6 +581,16 @@ def run_loop():
         gc.collect()
     else:
       gc_check_count += 1
+
+def GetDestPort(port):
+  global port_mappings
+  if port_mappings is not None:
+    src_port = str(port)
+    if src_port in port_mappings:
+      return port_mappings[src_port]
+    elif 'default' in port_mappings:
+      return port_mappings['default']
+  return port
 
 if '__main__' == __name__:
   main()
