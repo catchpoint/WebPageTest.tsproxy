@@ -24,6 +24,7 @@ $ python tsproxy.py --rtt=200 --inkbps=1600 --outkbps=768
 * **-p, --port** : SOCKS 5 proxy port (defaults to port 1080).
 * **-b, --bind** : Interface address to listen on (defaults to localhost).
 * **-d, --desthost** : Redirect all outbound connections to the specified host (name or IP).
+* **-m, --mapports** : Remap outbound ports. Comma-separated list of original:new with * as a wildcard. --mapports '443:8443,*:8080'
 * **-v, --verbose** : Increase verbosity (specify multiple times for more). -vvvv for full debug output.
 
 #Configuring Chrome to use tsproxy
