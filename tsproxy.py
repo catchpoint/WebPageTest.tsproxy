@@ -32,6 +32,7 @@ dest_addresses = None
 connections = {}
 dns_cache = {}
 port_mappings = None
+map_localhost = False
 
 ########################################################################################################################
 #   Traffic-shaping pipe (just passthrough for now)
@@ -165,6 +166,8 @@ class TCPConnection(asyncore.dispatcher):
     self.needs_close = False
     self.read_available = False
     self.window_available = options.window
+    self.is_localhost = False
+    self.did_resolve = False;
 
   def SendMessage(self, type, message):
     message['message'] = type
@@ -249,13 +252,20 @@ class TCPConnection(asyncore.dispatcher):
 
   def HandleResolve(self, message):
     global in_pipe
+    global map_localhost
+    self.did_resolve = True
     if 'hostname' in message:
       self.hostname = message['hostname']
     self.port = 0
     if 'port' in message:
       self.port = message['port']
     logging.info('[{0:d}] Resolving {1}:{2:d}'.format(self.client_id, self.hostname, self.port))
-    if dest_addresses is not None:
+    if self.hostname == 'localhost':
+      self.hostname = '127.0.0.1'
+    if self.hostname == '127.0.0.1':
+      logging.info('[{0:d}] Connection to localhost detected'.format(self.client_id))
+      self.is_localhost = True
+    if (dest_addresses is not None) and (not self.is_localhost or map_localhost):
       self.SendMessage('resolved', {'addresses': dest_addresses})
     else:
       self.state = self.STATE_RESOLVING
@@ -263,16 +273,23 @@ class TCPConnection(asyncore.dispatcher):
       self.dns_thread.start()
 
   def HandleConnect(self, message):
+    global map_localhost
     if 'addresses' in message and len(message['addresses']):
-      logging.info('[{0:d}] Connecting'.format(self.client_id))
       self.state = self.STATE_CONNECTING
-      if dest_addresses is not None:
+      if not self.did_resolve and message['addresses'][0] == '127.0.0.1':
+        logging.info('[{0:d}] Connection to localhost detected'.format(self.client_id))
+        self.is_localhost = True
+      if (dest_addresses is not None) and (not self.is_localhost or map_localhost):
         self.addr = dest_addresses[0]
       else:
         self.addr = message['addresses'][0]
       self.create_socket(self.addr[0], socket.SOCK_STREAM)
       addr = self.addr[4][0]
-      port = GetDestPort(self.addr[4][1])
+      if not self.is_localhost or map_localhost:
+        port = GetDestPort(self.addr[4][1])
+      else:
+        port = self.addr[4][1]
+      logging.info('[{0:d}] Connecting to {1}:{2:d}'.format(self.client_id, addr, port))
       self.connect((addr, port))
 
 
@@ -497,6 +514,7 @@ def main():
   global out_pipe
   global dest_addresses
   global port_mappings
+  global map_localhost
   import argparse
   parser = argparse.ArgumentParser(description='Traffic-shaping socks5 proxy.',
                                    prog='tsproxy')
@@ -509,6 +527,8 @@ def main():
   parser.add_argument('-w', '--window', type=int, default=10, help="Emulated TCP initial congestion window (defaults to 10).")
   parser.add_argument('-d', '--desthost', help="Redirect all outbound connections to the specified host.")
   parser.add_argument('-m', '--mapports', help="Remap outbound ports. Comma-separated list of original:new with * as a wildcard. --mapports '443:8443,*:8080'")
+  parser.add_argument('-l', '--localhost', action='store_true', default=False,
+                      help="Include connections already destined for localhost/127.0.0.1 in the host and port remapping.")
   options = parser.parse_args()
 
   # Set up logging
@@ -532,6 +552,8 @@ def main():
         port_mappings['default'] = int(dest)
       else:
         port_mappings[src] = int(dest)
+
+  map_localhost = options.localhost
 
   # Resolve the address for a rewrite destination host if one was specified
   if options.desthost:

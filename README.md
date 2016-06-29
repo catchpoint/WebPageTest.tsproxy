@@ -25,6 +25,7 @@ $ python tsproxy.py --rtt=200 --inkbps=1600 --outkbps=768
 * **-b, --bind** : Interface address to listen on (defaults to localhost).
 * **-d, --desthost** : Redirect all outbound connections to the specified host (name or IP).
 * **-m, --mapports** : Remap outbound ports. Comma-separated list of original:new with * as a wildcard. --mapports '443:8443,*:8080'
+* **-l, --localhost** : Include connections already destined for localhost/127.0.0.1 in the host and port remapping.
 * **-v, --verbose** : Increase verbosity (specify multiple times for more). -vvvv for full debug output.
 
 #Configuring Chrome to use tsproxy
