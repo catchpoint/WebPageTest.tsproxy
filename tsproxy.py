@@ -195,7 +195,6 @@ class TCPConnection(asyncore.dispatcher):
     logging.warning('[{0:d}] Error'.format(self.client_id))
     if self.state == self.STATE_CONNECTING:
       self.SendMessage('connected', {'success': False, 'address': self.addr})
-    self.handle_error()
 
   def handle_close(self):
     logging.info('[{0:d}] Server Connection Closed'.format(self.client_id))
