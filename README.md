@@ -21,12 +21,24 @@ $ python tsproxy.py --rtt=200 --inkbps=1600 --outkbps=768
 * **-i, --inkbps** : Download Bandwidth (in 1000 bits/s - Kbps).
 * **-o, --outkbps** : Upload Bandwidth (in 1000 bits/s - Kbps).
 * **-w, --window** : Emulated TCP initial congestion window (defaults to 10).
-* **-p, --port** : SOCKS 5 proxy port (defaults to port 1080).
+* **-p, --port** : SOCKS 5 proxy port (defaults to port 1080). Specifying a port of 0 will use a randomly assigned port.
 * **-b, --bind** : Interface address to listen on (defaults to localhost).
 * **-d, --desthost** : Redirect all outbound connections to the specified host (name or IP).
 * **-m, --mapports** : Remap outbound ports. Comma-separated list of original:new with * as a wildcard. --mapports '443:8443,*:8080'
 * **-l, --localhost** : Include connections already destined for localhost/127.0.0.1 in the host and port remapping.
 * **-v, --verbose** : Increase verbosity (specify multiple times for more). -vvvv for full debug output.
+
+#Runtime Options
+The traffic shaping configuration can be changed dynamically at runtime by passing commands in through the console (or stdin).  Each command is on a line, terminated with an end-of-line (\n).
+
+
+* **flush** : Flush queued data out of the pipes.  Useful for clearing out any accumulated background data between tests.
+* **set rtt <latency>** : Change the connection latency. i.e. "set rtt 200\n" will change to a 200ms RTT.
+* **set inkbps <bandwidth>** : Change the download bandwidth. i.e. "set inkbps 5000\n" will change to a 5Mbps download connection.
+* **set outkbps <bandwidth>** : Change the upload bandwidth. i.e. "set outkbps 1000\n" will change to a 1Mbps upload connection.
+
+All bandwidth and latency changes also carry an implied flush and clear out any pending data.
+
 
 #Configuring Chrome to use tsproxy
 Add a --proxy-server command-line option.
