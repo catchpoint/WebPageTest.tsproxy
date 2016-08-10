@@ -561,6 +561,10 @@ class CommandProcessor():
           out_pipe.kbps = float(command[2]) * REMOVE_TCP_OVERHEAD
           needs_flush = True
           ok = True
+        elif len(command) >= 3 and command[0].lower() == 'set' and command[1].lower() == 'mapports' and len(command[2]):
+          SetPortMappings(command[2])
+          needs_flush = True
+          ok = True
         if not ok:
           PrintMessage('ERROR')
 
@@ -607,13 +611,7 @@ def main():
 
   # Parse any port mappings
   if options.mapports:
-    port_mappings = {}
-    for pair in options.mapports.split(','):
-      (src, dest) = pair.split(':')
-      if src == '*':
-        port_mappings['default'] = int(dest)
-      else:
-        port_mappings[src] = int(dest)
+    SetPortMappings(options.mapports)
 
   map_localhost = options.localhost
 
@@ -673,6 +671,7 @@ def run_loop():
     else:
       gc_check_count += 1
 
+
 def GetDestPort(port):
   global port_mappings
   if port_mappings is not None:
@@ -682,6 +681,20 @@ def GetDestPort(port):
     elif 'default' in port_mappings:
       return port_mappings['default']
   return port
+
+
+def SetPortMappings(map_string):
+  global port_mappings
+  port_mappings = {}
+  map_string = map_string.strip('\'" \t\r\n')
+  for pair in map_string.split(','):
+    (src, dest) = pair.split(':')
+    if src == '*':
+      port_mappings['default'] = int(dest)
+      logging.debug("Default port mapped to port {0}".format(dest))
+    else:
+      logging.debug("Port {0} mapped to port {1}".format(src, dest))
+      port_mappings[src] = int(dest)
 
 
 if '__main__' == __name__:
