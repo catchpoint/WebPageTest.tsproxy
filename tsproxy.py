@@ -540,33 +540,36 @@ class CommandProcessor():
     global needs_flush
     global REMOVE_TCP_OVERHEAD
     if len(input):
-      command = input.split()
-      if len(command) and len(command[0]):
-        ok = False
-        if command[0].lower() == 'flush':
-          needs_flush = True
-          ok = True
-        elif len(command) >= 3 and command[0].lower() == 'set' and command[1].lower() == 'rtt' and len(command[2]):
-          rtt = float(command[2])
-          latency = rtt / 2000.0
-          in_pipe.latency = latency
-          out_pipe.latency = latency
-          needs_flush = True
-          ok = True
-        elif len(command) >= 3 and command[0].lower() == 'set' and command[1].lower() == 'inkbps' and len(command[2]):
-          in_pipe.kbps = float(command[2]) * REMOVE_TCP_OVERHEAD
-          needs_flush = True
-          ok = True
-        elif len(command) >= 3 and command[0].lower() == 'set' and command[1].lower() == 'outkbps' and len(command[2]):
-          out_pipe.kbps = float(command[2]) * REMOVE_TCP_OVERHEAD
-          needs_flush = True
-          ok = True
-        elif len(command) >= 3 and command[0].lower() == 'set' and command[1].lower() == 'mapports' and len(command[2]):
-          SetPortMappings(command[2])
-          needs_flush = True
-          ok = True
-        if not ok:
-          PrintMessage('ERROR')
+      ok = False
+      try:
+        command = input.split()
+        if len(command) and len(command[0]):
+          if command[0].lower() == 'flush':
+            needs_flush = True
+            ok = True
+          elif len(command) >= 3 and command[0].lower() == 'set' and command[1].lower() == 'rtt' and len(command[2]):
+            rtt = float(command[2])
+            latency = rtt / 2000.0
+            in_pipe.latency = latency
+            out_pipe.latency = latency
+            needs_flush = True
+            ok = True
+          elif len(command) >= 3 and command[0].lower() == 'set' and command[1].lower() == 'inkbps' and len(command[2]):
+            in_pipe.kbps = float(command[2]) * REMOVE_TCP_OVERHEAD
+            needs_flush = True
+            ok = True
+          elif len(command) >= 3 and command[0].lower() == 'set' and command[1].lower() == 'outkbps' and len(command[2]):
+            out_pipe.kbps = float(command[2]) * REMOVE_TCP_OVERHEAD
+            needs_flush = True
+            ok = True
+          elif len(command) >= 3 and command[0].lower() == 'set' and command[1].lower() == 'mapports' and len(command[2]):
+            SetPortMappings(command[2])
+            needs_flush = True
+            ok = True
+      except:
+        pass
+      if not ok:
+        PrintMessage('ERROR')
 
 
 ########################################################################################################################
