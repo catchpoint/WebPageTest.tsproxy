@@ -15,8 +15,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 import asyncore
+import ctypes
+from ctypes import wintypes
 import gc
 import logging
+import platform
 import Queue
 import signal
 import socket
@@ -81,6 +84,17 @@ class TSPipe():
         self.queue.put(message)
     except:
       pass
+
+  def TimeToNextMessage(self, min_time = 0.001, max_time = 1.0):
+    next_message_time = max_time
+    try:
+      if self.next_message is None:
+        self.next_message = self.queue.get_nowait()
+      if self.next_message is not None:
+        next_message_time = max(min_time, self.next_message['time'] - time.clock())
+    except:
+      pass
+    return next_message_time
 
   def tick(self):
     global connections
@@ -147,6 +161,7 @@ class AsyncDNS(threading.Thread):
 
   def run(self):
     try:
+      logging.debug('[{0:d}] AsyncDNS - calling getaddrinfo for {1}:{2:d}'.format(self.client_id, self.hostname, self.port))
       addresses = socket.getaddrinfo(self.hostname, self.port)
       logging.info('[{0:d}] Resolving {1}:{2:d} Completed'.format(self.client_id, self.hostname, self.port))
     except:
@@ -267,6 +282,7 @@ class TCPConnection(asyncore.dispatcher):
       logging.info('[{0:d}] Connection to localhost detected'.format(self.client_id))
       self.is_localhost = True
     if (dest_addresses is not None) and (not self.is_localhost or map_localhost):
+      logging.info('[{0:d}] Resolving {1}:{2:d} to mapped address {3}'.format(self.client_id, self.hostname, self.port, dest_addresses))
       self.SendMessage('resolved', {'addresses': dest_addresses})
     else:
       self.state = self.STATE_RESOLVING
@@ -447,6 +463,8 @@ class Socks5Connection(asyncore.dispatcher):
                       self.SendMessage('resolve', {'hostname': self.hostname, 'port': self.port})
                   elif self.ip is not None:
                     self.state = self.STATE_CONNECTING
+                    logging.debug(
+                      '[{0:d}] Socks Connect - calling getaddrinfo for {1}:{2:d}'.format(self.client_id, self.ip, self.port))
                     self.addresses = socket.getaddrinfo(self.ip, self.port)
                     self.SendMessage('connect', {'addresses': self.addresses, 'port': self.port})
         else:
@@ -612,6 +630,7 @@ def main():
 
   # Resolve the address for a rewrite destination host if one was specified
   if options.desthost:
+    logging.debug('Startup - calling getaddrinfo for {0}:{1:d}'.format(options.desthost, GetDestPort(80)))
     dest_addresses = socket.getaddrinfo(options.desthost, GetDestPort(80))
 
   # Set up the pipes.  1/2 of the latency gets applied in each direction (and /1000 to convert to seconds)
@@ -640,11 +659,19 @@ def run_loop():
   global needs_flush
   global flush_pipes
   gc_check_count = 0
+  winmm = None
+
+  # increase the windows timer resolution to 1ms
+  if platform.system() == "Windows":
+    winmm = ctypes.WinDLL('winmm')
+    winmm.timeBeginPeriod(1)
+
   last_activity = time.clock()
   # disable gc to avoid pauses during traffic shaping/proxying
   gc.disable()
   while not must_exit:
-    asyncore.poll(0.001, asyncore.socket_map)
+    wait_time = min(in_pipe.TimeToNextMessage(), out_pipe.TimeToNextMessage())
+    asyncore.poll(wait_time, asyncore.socket_map)
     if needs_flush:
       flush_pipes = True
       needs_flush = False
@@ -666,6 +693,8 @@ def run_loop():
     else:
       gc_check_count += 1
 
+  if winmm is not None:
+    winmm.timeEndPeriod(1)
 
 def GetDestPort(port):
   global port_mappings
