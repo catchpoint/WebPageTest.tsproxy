@@ -16,8 +16,6 @@ limitations under the License.
 """
 import asyncore
 from collections import deque
-import ctypes
-from ctypes import wintypes
 import gc
 import logging
 import platform
@@ -703,8 +701,12 @@ def run_loop():
 
   # increase the windows timer resolution to 1ms
   if platform.system() == "Windows":
-    winmm = ctypes.WinDLL('winmm')
-    winmm.timeBeginPeriod(1)
+    try:
+      import ctypes
+      winmm = ctypes.WinDLL('winmm')
+      winmm.timeBeginPeriod(1)
+    except:
+      pass
 
   last_activity = time.clock()
   # disable gc to avoid pauses during traffic shaping/proxying
