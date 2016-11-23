@@ -67,7 +67,7 @@ class TSPipe():
     if self.direction == self.PIPE_IN:
       self.peer = 'client'
 
-  def SendMessage(self, message):
+  def SendMessage(self, message, main_thread = True):
     global connections, in_pipe, out_pipe
     message_sent = False
     now = time.clock()
@@ -80,8 +80,8 @@ class TSPipe():
       message['size'] = float(len(message['data']))
     try:
       connection_id = message['connection']
-      # Send messages directly, bypassing the queues is throttling is disabled
-      if connection_id in connections and self.peer in connections[connection_id]and self.latency == 0 and self.kbps == .0:
+      # Send messages directly, bypassing the queues is throttling is disabled and we are on the main thread
+      if main_thread and connection_id in connections and self.peer in connections[connection_id]and self.latency == 0 and self.kbps == .0:
         message_sent = self.SendPeerMessage(message)
     except:
       pass
@@ -168,7 +168,11 @@ class AsyncDNS(threading.Thread):
       addresses = ()
       logging.info('[{0:d}] Resolving {1}:{2:d} Failed'.format(self.client_id, self.hostname, self.port))
     message = {'message': 'resolved', 'connection': self.client_id, 'addresses': addresses}
-    self.result_pipe.SendMessage(message)
+    self.result_pipe.SendMessage(message, False)
+    # open and close a local socket which will interrupt the long polling loop to process the message
+    s = socket.socket()
+    s.connect((server.ipaddr, server.port))
+    s.close()
 
 
 ########################################################################################################################
@@ -274,8 +278,7 @@ class TCPConnection(asyncore.dispatcher):
       pass
 
   def HandleResolve(self, message):
-    global in_pipe
-    global map_localhost
+    global in_pipe,  map_localhost
     self.did_resolve = True
     if 'hostname' in message:
       self.hostname = message['hostname']
@@ -548,6 +551,7 @@ class CommandProcessor():
     global needs_flush
     global REMOVE_TCP_OVERHEAD
     global port_mappings
+    global server
     if len(input):
       ok = False
       try:
@@ -592,6 +596,11 @@ class CommandProcessor():
         pass
       if not ok:
         PrintMessage('ERROR')
+      # open and close a local socket which will interrupt the long polling loop to process the flush
+      if needs_flush:
+        s = socket.socket()
+        s.connect((server.ipaddr, server.port))
+        s.close()
 
 
 ########################################################################################################################
@@ -671,7 +680,6 @@ def run_loop():
   global needs_flush
   global flush_pipes
   global last_activity
-  gc_check_count = 0
   winmm = None
 
   # increase the windows timer resolution to 1ms
@@ -688,7 +696,7 @@ def run_loop():
   # disable gc to avoid pauses during traffic shaping/proxying
   gc.disable()
   while not must_exit:
-    # Tick every 1ms if traffic-shaping is enabled and we have data, every 1 second otherwise
+    # Tick every 1ms if traffic-shaping is enabled and we have data or are doing background dns lookups, every 1 second otherwise
     tick_interval = 0.001
     if in_pipe.queue.empty() and out_pipe.queue.empty():
       tick_interval = 1.0
