@@ -50,15 +50,6 @@ def PrintMessage(msg):
   print >> sys.stdout, msg
   sys.stdout.flush()
 
-# Special-case numerical IPV4 address lookups that aren't names in case the browser already did DNS
-def GetV4Address(host, port):
-  dest = None
-  if host == 'localhost':
-    dest = (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, '', ('127.0.0.1', int(port)))
-  elif re.match('[\d]+\.[\d+]\.[\d]+\.[\d]+', host):
-    dest = (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, '', (host, int(port)))
-  return dest
-
 ########################################################################################################################
 #   Traffic-shaping pipe (just passthrough for now)
 ########################################################################################################################
@@ -177,9 +168,7 @@ class AsyncDNS(threading.Thread):
     global lock, background_activity_count
     try:
       logging.debug('[{0:d}] AsyncDNS - calling getaddrinfo for {1}:{2:d}'.format(self.client_id, self.hostname, self.port))
-      addresses = GetV4Address(self.hostname, self.port)
-      if addresses is None:
-        addresses = socket.getaddrinfo(self.hostname, self.port)
+      addresses = socket.getaddrinfo(self.hostname, self.port)
       logging.info('[{0:d}] Resolving {1}:{2:d} Completed'.format(self.client_id, self.hostname, self.port))
     except:
       addresses = ()
@@ -316,17 +305,12 @@ class TCPConnection(asyncore.dispatcher):
       logging.info('[{0:d}] Resolving {1}:{2:d} to mapped address {3}'.format(self.client_id, self.hostname, self.port, dest_addresses))
       self.SendMessage('resolved', {'addresses': dest_addresses})
     else:
-      dest = GetV4Address(self.hostname, self.port)
-      if dest is not None:
-        logging.info('[{0:d}] Resolving {1}:{2:d} to IP address {3}'.format(self.client_id, self.hostname, self.port, dest))
-        self.SendMessage('resolved', {'addresses': dest})
-      else:
-        self.state = self.STATE_RESOLVING
-        self.dns_thread = AsyncDNS(self.client_id, self.hostname, self.port, in_pipe)
-        lock.acquire()
-        background_activity_count += 1
-        lock.release()
-        self.dns_thread.start()
+      lock.acquire()
+      background_activity_count += 1
+      lock.release()
+      self.state = self.STATE_RESOLVING
+      self.dns_thread = AsyncDNS(self.client_id, self.hostname, self.port, in_pipe)
+      self.dns_thread.start()
 
   def HandleConnect(self, message):
     global map_localhost
@@ -504,13 +488,8 @@ class Socks5Connection(asyncore.dispatcher):
                       self.SendMessage('resolve', {'hostname': self.hostname, 'port': self.port})
                   elif self.ip is not None:
                     self.state = self.STATE_CONNECTING
-                    logging.debug(
-                      '[{0:d}] Socks Connect - calling getaddrinfo for {1}:{2:d}'.format(self.client_id, self.ip, self.port))
-                    addr = GetV4Address(self.ip, self.port)
-                    if addr is not None:
-                      self.addresses = addr
-                    else:
-                      self.addresses = socket.getaddrinfo(self.ip, self.port)
+                    logging.debug('[{0:d}] Socks Connect - calling getaddrinfo for {1}:{2:d}'.format(self.client_id, self.ip, self.port))
+                    self.addresses = socket.getaddrinfo(self.ip, self.port)
                     self.SendMessage('connect', {'addresses': self.addresses, 'port': self.port})
         else:
           return
@@ -685,9 +664,7 @@ def main():
   # Resolve the address for a rewrite destination host if one was specified
   if options.desthost:
     logging.debug('Startup - calling getaddrinfo for {0}:{1:d}'.format(options.desthost, GetDestPort(80)))
-    dest_addresses = GetV4Address(options.desthost, GetDestPort(80))
-    if dest_addresses is None:
-      dest_addresses = socket.getaddrinfo(options.desthost, GetDestPort(80))
+    dest_addresses = socket.getaddrinfo(options.desthost, GetDestPort(80))
 
   # Set up the pipes.  1/2 of the latency gets applied in each direction (and /1000 to convert to seconds)
   in_pipe = TSPipe(TSPipe.PIPE_IN, options.rtt / 2000.0, options.inkbps * REMOVE_TCP_OVERHEAD)
