@@ -97,7 +97,10 @@ class TSPipe():
     except:
       pass
     if not message_sent:
-      self.queue.put(message)
+      try:
+        self.queue.put(message)
+      except:
+        pass
 
   def SendPeerMessage(self, message):
     global last_activity
@@ -732,7 +735,7 @@ def run_loop():
     lock.acquire()
     tick_interval = 0.001
     if background_activity_count == 0:
-      if in_pipe.queue.empty() and out_pipe.queue.empty():
+      if in_pipe.next_message is None and in_pipe.queue.empty() and out_pipe.next_message is None and out_pipe.queue.empty():
         tick_interval = 1.0
       elif in_pipe.kbps == .0 and in_pipe.latency == 0 and out_pipe.kbps == .0 and out_pipe.latency == 0:
         tick_interval = 1.0
