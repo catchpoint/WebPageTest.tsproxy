@@ -19,6 +19,7 @@ import gc
 import logging
 import platform
 import Queue
+import re
 import signal
 import socket
 import sys
@@ -39,6 +40,8 @@ needs_flush = False
 flush_pipes = False
 last_activity = None
 REMOVE_TCP_OVERHEAD = 1460.0 / 1500.0
+lock = threading.Lock()
+background_activity_count = 0
 
 
 def PrintMessage(msg):
@@ -47,6 +50,14 @@ def PrintMessage(msg):
   print >> sys.stdout, msg
   sys.stdout.flush()
 
+# Special-case numerical IPV4 address lookups that aren't names in case the browser already did DNS
+def GetV4Address(host, port):
+  dest = None
+  if host == 'localhost':
+    dest = (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, '', ('127.0.0.1', int(port)))
+  elif re.match('[\d]+\.[\d+]\.[\d]+\.[\d]+', host):
+    dest = (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, '', (host, int(port)))
+  return dest
 
 ########################################################################################################################
 #   Traffic-shaping pipe (just passthrough for now)
@@ -160,15 +171,22 @@ class AsyncDNS(threading.Thread):
     self.result_pipe = result_pipe
 
   def run(self):
+    global lock, background_activity_count
     try:
       logging.debug('[{0:d}] AsyncDNS - calling getaddrinfo for {1}:{2:d}'.format(self.client_id, self.hostname, self.port))
-      addresses = socket.getaddrinfo(self.hostname, self.port)
+      addresses = GetV4Address(self.hostname, self.port)
+      if addresses is None:
+        addresses = socket.getaddrinfo(self.hostname, self.port)
       logging.info('[{0:d}] Resolving {1}:{2:d} Completed'.format(self.client_id, self.hostname, self.port))
     except:
       addresses = ()
       logging.info('[{0:d}] Resolving {1}:{2:d} Failed'.format(self.client_id, self.hostname, self.port))
     message = {'message': 'resolved', 'connection': self.client_id, 'addresses': addresses}
     self.result_pipe.SendMessage(message, False)
+    lock.acquire()
+    if background_activity_count > 0:
+      background_activity_count -= 1
+    lock.release()
     # open and close a local socket which will interrupt the long polling loop to process the message
     s = socket.socket()
     s.connect((server.ipaddr, server.port))
@@ -278,7 +296,7 @@ class TCPConnection(asyncore.dispatcher):
       pass
 
   def HandleResolve(self, message):
-    global in_pipe,  map_localhost
+    global in_pipe,  map_localhost, lock, background_activity_count
     self.did_resolve = True
     if 'hostname' in message:
       self.hostname = message['hostname']
@@ -295,9 +313,17 @@ class TCPConnection(asyncore.dispatcher):
       logging.info('[{0:d}] Resolving {1}:{2:d} to mapped address {3}'.format(self.client_id, self.hostname, self.port, dest_addresses))
       self.SendMessage('resolved', {'addresses': dest_addresses})
     else:
-      self.state = self.STATE_RESOLVING
-      self.dns_thread = AsyncDNS(self.client_id, self.hostname, self.port, in_pipe)
-      self.dns_thread.start()
+      dest = GetV4Address(self.hostname, self.port)
+      if dest is not None:
+        logging.info('[{0:d}] Resolving {1}:{2:d} to IP address {3}'.format(self.client_id, self.hostname, self.port, dest))
+        self.SendMessage('resolved', {'addresses': dest})
+      else:
+        self.state = self.STATE_RESOLVING
+        self.dns_thread = AsyncDNS(self.client_id, self.hostname, self.port, in_pipe)
+        lock.acquire()
+        background_activity_count += 1
+        lock.release()
+        self.dns_thread.start()
 
   def HandleConnect(self, message):
     global map_localhost
@@ -477,7 +503,11 @@ class Socks5Connection(asyncore.dispatcher):
                     self.state = self.STATE_CONNECTING
                     logging.debug(
                       '[{0:d}] Socks Connect - calling getaddrinfo for {1}:{2:d}'.format(self.client_id, self.ip, self.port))
-                    self.addresses = socket.getaddrinfo(self.ip, self.port)
+                    addr = GetV4Address(self.ip, self.port)
+                    if addr is not None:
+                      self.addresses = addr
+                    else:
+                      self.addresses = socket.getaddrinfo(self.ip, self.port)
                     self.SendMessage('connect', {'addresses': self.addresses, 'port': self.port})
         else:
           return
@@ -652,7 +682,9 @@ def main():
   # Resolve the address for a rewrite destination host if one was specified
   if options.desthost:
     logging.debug('Startup - calling getaddrinfo for {0}:{1:d}'.format(options.desthost, GetDestPort(80)))
-    dest_addresses = socket.getaddrinfo(options.desthost, GetDestPort(80))
+    dest_addresses = GetV4Address(options.desthost, GetDestPort(80))
+    if dest_addresses is None:
+      dest_addresses = socket.getaddrinfo(options.desthost, GetDestPort(80))
 
   # Set up the pipes.  1/2 of the latency gets applied in each direction (and /1000 to convert to seconds)
   in_pipe = TSPipe(TSPipe.PIPE_IN, options.rtt / 2000.0, options.inkbps * REMOVE_TCP_OVERHEAD)
@@ -697,11 +729,14 @@ def run_loop():
   gc.disable()
   while not must_exit:
     # Tick every 1ms if traffic-shaping is enabled and we have data or are doing background dns lookups, every 1 second otherwise
+    lock.acquire()
     tick_interval = 0.001
-    if in_pipe.queue.empty() and out_pipe.queue.empty():
-      tick_interval = 1.0
-    elif in_pipe.kbps == .0 and in_pipe.latency == 0 and out_pipe.kbps == .0 and out_pipe.latency == 0:
-      tick_interval = 1.0
+    if background_activity_count == 0:
+      if in_pipe.queue.empty() and out_pipe.queue.empty():
+        tick_interval = 1.0
+      elif in_pipe.kbps == .0 and in_pipe.latency == 0 and out_pipe.kbps == .0 and out_pipe.latency == 0:
+        tick_interval = 1.0
+    lock.release()
     asyncore.poll(tick_interval, asyncore.socket_map)
     if needs_flush:
       flush_pipes = True
