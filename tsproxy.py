@@ -266,6 +266,8 @@ class TCPConnection(asyncore.dispatcher):
     if self.needs_config:
       self.needs_config = False
       self.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+      self.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 128 * 1024)
+      self.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 128 * 1024)
     if len(self.buffer) > 0:
       sent = self.send(self.buffer)
       logging.debug('[{0:d}] TCP => {1:d} byte(s)'.format(self.client_id, sent))
@@ -385,7 +387,8 @@ class Socks5Connection(asyncore.dispatcher):
     self.requested_address = None
     self.buffer = ''
     self.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-    self.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1460)
+    self.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 128 * 1024)
+    self.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 128 * 1024)
     self.needs_close = False
 
   def SendMessage(self, type, message):
