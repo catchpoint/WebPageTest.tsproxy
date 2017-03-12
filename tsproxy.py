@@ -631,6 +631,7 @@ def main():
   parser = argparse.ArgumentParser(description='Traffic-shaping socks5 proxy.',
                                    prog='tsproxy')
   parser.add_argument('-v', '--verbose', action='count', help="Increase verbosity (specify multiple times for more). -vvvv for full debug output.")
+  parser.add_argument('--logfile', help="Write log messages to given file instead of stdout.")
   parser.add_argument('-b', '--bind', default='localhost', help="Server interface address (defaults to localhost).")
   parser.add_argument('-p', '--port', type=int, default=1080, help="Server port (defaults to 1080, use 0 for randomly assigned).")
   parser.add_argument('-r', '--rtt', type=float, default=.0, help="Round Trip Time Latency (in ms).")
@@ -653,7 +654,11 @@ def main():
     log_level = logging.INFO
   elif options.verbose >= 4:
     log_level = logging.DEBUG
-  logging.basicConfig(level=log_level, format="%(asctime)s.%(msecs)03d - %(message)s", datefmt="%H:%M:%S")
+  if options.logfile is not None:
+    logging.basicConfig(filename=options.logfile, level=log_level,
+                        format="%(asctime)s.%(msecs)03d - %(message)s", datefmt="%H:%M:%S")
+  else:
+    logging.basicConfig(level=log_level, format="%(asctime)s.%(msecs)03d - %(message)s", datefmt="%H:%M:%S")
 
   # Parse any port mappings
   if options.mapports:
