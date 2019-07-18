@@ -18,7 +18,10 @@ import asyncore
 import gc
 import logging
 import platform
-import Queue
+try:
+    from Queue import Queue
+except ImportError:
+    from queue import Queue
 import re
 import signal
 import socket
@@ -53,7 +56,7 @@ except Exception:
 def PrintMessage(msg):
   # Print the message to stdout & flush to make sure that the message is not
   # buffered when tsproxy is run as a subprocess.
-  print >> sys.stdout, msg
+  sys.stdout.write(msg)
   sys.stdout.flush()
 
 ########################################################################################################################
@@ -67,7 +70,7 @@ class TSPipe():
     self.direction = direction
     self.latency = latency
     self.kbps = kbps
-    self.queue = Queue.Queue()
+    self.queue = Queue()
     self.last_tick = current_time()
     self.next_message = None
     self.available_bytes = .0
@@ -271,9 +274,9 @@ class TCPConnection(asyncore.dispatcher):
   def handle_write(self):
     if self.needs_config:
       self.needs_config = False
-      self.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-      self.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 128 * 1024)
-      self.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 128 * 1024)
+      self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+      self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 128 * 1024)
+      self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 128 * 1024)
     if len(self.buffer) > 0:
       sent = self.send(self.buffer)
       logging.debug('[{0:d}] TCP => {1:d} byte(s)'.format(self.client_id, sent))
@@ -357,7 +360,7 @@ class Socks5Server(asyncore.dispatcher):
       self.set_reuse_addr()
       self.bind((host, port))
       self.listen(socket.SOMAXCONN)
-      self.ipaddr, self.port = self.getsockname()
+      self.ipaddr, self.port = self.socket.getsockname()
       self.current_client_id = 0
     except:
       PrintMessage("Unable to listen on {0}:{1}. Is the port already in use?".format(host, port))
@@ -396,9 +399,9 @@ class Socks5Connection(asyncore.dispatcher):
     self.port = None
     self.requested_address = None
     self.buffer = ''
-    self.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-    self.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 128 * 1024)
-    self.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 128 * 1024)
+    self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 128 * 1024)
+    self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 128 * 1024)
     self.needs_close = False
 
   def SendMessage(self, type, message):
