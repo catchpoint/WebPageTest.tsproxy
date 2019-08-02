@@ -67,3 +67,4 @@ log.txt
 .idea/modules.xml
 .idea/tsproxy.iml
 .idea/workspace.xml
+.vscode/settings.json

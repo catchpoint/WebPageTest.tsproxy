@@ -495,7 +495,7 @@ class Socks5Connection(asyncore.dispatcher):
                 self.port = 256 * ord(data[port_offset]) + ord(data[port_offset + 1])
                 if self.port:
                   if self.ip is None and self.hostname is not None:
-                    if self.hostname in dns_cache:
+                    if dns_cache is not None and self.hostname in dns_cache:
                       self.state = self.STATE_CONNECTING
                       cache_entry = dns_cache[self.hostname]
                       self.addresses = cache_entry['addresses']
@@ -534,7 +534,8 @@ class Socks5Connection(asyncore.dispatcher):
       if 'addresses' in message and len(message['addresses']):
         self.state = self.STATE_CONNECTING
         self.addresses = message['addresses']
-        dns_cache[self.hostname] = {'addresses': self.addresses, 'localhost': message['localhost']}
+        if dns_cache is not None:
+          dns_cache[self.hostname] = {'addresses': self.addresses, 'localhost': message['localhost']}
         logging.debug('[{0:d}] Resolved {1}, Connecting'.format(self.client_id, self.hostname))
         self.SendMessage('connect', {'addresses': self.addresses, 'port': self.port, 'localhost': message['localhost']})
       else:
@@ -643,6 +644,7 @@ def main():
   global dest_addresses
   global port_mappings
   global map_localhost
+  global dns_cache
   import argparse
   global REMOVE_TCP_OVERHEAD
   parser = argparse.ArgumentParser(description='Traffic-shaping socks5 proxy.',
@@ -659,6 +661,7 @@ def main():
   parser.add_argument('-m', '--mapports', help="Remap outbound ports. Comma-separated list of original:new with * as a wildcard. --mapports '443:8443,*:8080'")
   parser.add_argument('-l', '--localhost', action='store_true', default=False,
                       help="Include connections already destined for localhost/127.0.0.1 in the host and port remapping.")
+  parser.add_argument('-n', '--nodnscache', action='store_true', default=False, help="Disable internal DNS cache.")
   options = parser.parse_args()
 
   # Set up logging
@@ -680,6 +683,9 @@ def main():
   # Parse any port mappings
   if options.mapports:
     SetPortMappings(options.mapports)
+  
+  if options.nodnscache:
+    dns_cache = None
 
   map_localhost = options.localhost
 
