@@ -31,6 +31,7 @@ $ python tsproxy.py --rtt=200 --inkbps=1600 --outkbps=768
 | **`--mapports`**  | **`-m`** | Remap outbound ports. Comma-separated list of original:new with * as a wildcard. `--mapports '443:8443,*:8080'` |
 | **`--localhost`** | **`-l`** | Include connections already destined for localhost/127.0.0.1 in the host and port remapping. |
 | **`--nodnscache`** | **`-n`** | Disable the internal DNS cache. |
+| **`--flushdnscache`** | **`-f`** | Automatically flush the DNS cache 500ms after the last client disconnects. |
 | **`--verbose`**   | **`-v`** | Increase verbosity (specify multiple times for more). `-vvvv` for full debug output. |
 
 

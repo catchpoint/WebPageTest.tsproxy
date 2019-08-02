@@ -675,6 +675,7 @@ def main():
   parser.add_argument('-l', '--localhost', action='store_true', default=False,
                       help="Include connections already destined for localhost/127.0.0.1 in the host and port remapping.")
   parser.add_argument('-n', '--nodnscache', action='store_true', default=False, help="Disable internal DNS cache.")
+  parser.add_argument('-f', '--flushdnscache', action='store_true', default=False, help="Automatically flush the DNS cache 500ms after the last client disconnects.")
   options = parser.parse_args()
 
   # Set up logging
@@ -772,7 +773,7 @@ def run_loop():
       flush_pipes = False
     now = current_time()
     # Clear the DNS cache 500ms after the last client disconnects
-    if last_client_disconnected is not None and dns_cache:
+    if options.flushdnscache and last_client_disconnected is not None and dns_cache:
       if now - last_client_disconnected >= 0.5:
         dns_cache = {}
         last_client_disconnected = None
