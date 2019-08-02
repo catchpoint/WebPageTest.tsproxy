@@ -42,6 +42,7 @@ map_localhost = False
 needs_flush = False
 flush_pipes = False
 last_activity = None
+last_client_disconnected = None
 REMOVE_TCP_OVERHEAD = 1460.0 / 1500.0
 lock = threading.Lock()
 background_activity_count = 0
@@ -103,7 +104,7 @@ class TSPipe():
         pass
 
   def SendPeerMessage(self, message):
-    global last_activity
+    global last_activity, last_client_disconnected
     last_activity = current_time()
     message_sent = False
     connection_id = message['connection']
@@ -123,6 +124,9 @@ class TSPipe():
           except:
             pass
           del connections[connection_id]
+          if not connections:
+            last_client_disconnected = current_time()
+            logging.info('[{0:d}] Last connection closed'.format(self.client_id))
     return message_sent
 
   def tick(self):
@@ -245,6 +249,7 @@ class TCPConnection(asyncore.dispatcher):
       self.SendMessage('connected', {'success': False, 'address': self.addr})
 
   def handle_close(self):
+    global last_client_disconnected
     logging.info('[{0:d}] Server Connection Closed'.format(self.client_id))
     self.state = self.STATE_ERROR
     self.close()
@@ -256,6 +261,9 @@ class TCPConnection(asyncore.dispatcher):
           self.SendMessage('closed', {})
         else:
           del connections[self.client_id]
+        if not connections:
+          last_client_disconnected = current_time()
+          logging.info('[{0:d}] Last Browser disconnected'.format(self.client_id))
     except:
       pass
 
@@ -367,9 +375,10 @@ class Socks5Server(asyncore.dispatcher):
       exit(1)
 
   def handle_accept(self):
-    global connections
+    global connections, last_client_disconnected
     pair = self.accept()
     if pair is not None:
+      last_client_disconnected = None
       sock, addr = pair
       self.current_client_id += 1
       logging.info('[{0:d}] Incoming connection from {1}'.format(self.current_client_id, repr(addr)))
@@ -514,6 +523,7 @@ class Socks5Connection(asyncore.dispatcher):
       pass
 
   def handle_close(self):
+    global last_client_disconnected
     logging.info('[{0:d}] Browser Connection Closed by browser'.format(self.client_id))
     self.state = self.STATE_ERROR
     self.close()
@@ -525,6 +535,9 @@ class Socks5Connection(asyncore.dispatcher):
           self.SendMessage('closed', {})
         else:
           del connections[self.client_id]
+        if not connections:
+          last_client_disconnected = current_time()
+          logging.info('[{0:d}] Last Browser disconnected'.format(self.client_id))
     except:
       pass
 
@@ -720,6 +733,8 @@ def run_loop():
   global needs_flush
   global flush_pipes
   global last_activity
+  global last_client_disconnected
+  global dns_cache
   winmm = None
 
   # increase the windows timer resolution to 1ms
@@ -748,15 +763,22 @@ def run_loop():
     asyncore.poll(tick_interval, asyncore.socket_map)
     if needs_flush:
       flush_pipes = True
+      dns_cache = {}
       needs_flush = False
     out_pipe.tick()
     in_pipe.tick()
     if flush_pipes:
       PrintMessage('OK')
       flush_pipes = False
-    # Every 500 ms check to see if it is a good time to do a gc
     now = current_time()
-    if now - last_check > 0.5:
+    # Clear the DNS cache 500ms after the last client disconnects
+    if last_client_disconnected is not None and dns_cache:
+      if now - last_client_disconnected >= 0.5:
+        dns_cache = {}
+        last_client_disconnected = None
+        logging.debug("Flushed DNS cache")
+    # Every 500 ms check to see if it is a good time to do a gc
+    if now - last_check >= 0.5:
       last_check = now
       # manually gc after 5 seconds of idle
       if now - last_activity >= 5:
