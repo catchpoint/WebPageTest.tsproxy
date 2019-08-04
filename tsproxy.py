@@ -132,6 +132,7 @@ class TSPipe():
   def tick(self):
     global connections
     global flush_pipes
+    next_packet_time = None
     processed_messages = False
     now = current_time()
     try:
@@ -163,7 +164,19 @@ class TSPipe():
       self.available_bytes = .0
     self.last_tick = now
 
-    return processed_messages
+    # Figure out how long until the next packet can be sent
+    if self.next_message is not None:
+      # First, just the latency
+      next_packet_time = self.next_message['time'] - now
+      # Additional time for bandwidth
+      if self.kbps > .0:
+        accumulated_bytes = self.available_bytes + next_packet_time * self.kbps * 1000.0 / 8.0
+        needed_bytes = self.next_message['size'] - accumulated_bytes
+        if needed_bytes > 0:
+          needed_time = needed_bytes / (self.kbps * 1000.0 / 8.0)
+          next_packet_time += needed_time
+
+    return next_packet_time
 
 
 ########################################################################################################################
@@ -751,23 +764,30 @@ def run_loop():
   last_check = current_time()
   # disable gc to avoid pauses during traffic shaping/proxying
   gc.disable()
+  out_interval = None
+  in_interval = None
   while not must_exit:
     # Tick every 1ms if traffic-shaping is enabled and we have data or are doing background dns lookups, every 1 second otherwise
     lock.acquire()
     tick_interval = 0.001
+    if out_interval is not None:
+      tick_interval = max(tick_interval, out_interval)
+    if in_interval is not None:
+      tick_interval = max(tick_interval, in_interval)
     if background_activity_count == 0:
       if in_pipe.next_message is None and in_pipe.queue.empty() and out_pipe.next_message is None and out_pipe.queue.empty():
         tick_interval = 1.0
       elif in_pipe.kbps == .0 and in_pipe.latency == 0 and out_pipe.kbps == .0 and out_pipe.latency == 0:
         tick_interval = 1.0
     lock.release()
+    logging.debug("Tick Time: %0.3f", tick_interval)
     asyncore.poll(tick_interval, asyncore.socket_map)
     if needs_flush:
       flush_pipes = True
       dns_cache = {}
       needs_flush = False
-    out_pipe.tick()
-    in_pipe.tick()
+    out_interval = out_pipe.tick()
+    in_interval = in_pipe.tick()
     if flush_pipes:
       PrintMessage('OK')
       flush_pipes = False
