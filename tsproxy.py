@@ -155,7 +155,7 @@ class TSPipe():
         message = self.next_message
         self.next_message = None
         if self.kbps > .0:
-          self.available_bytes -= self.next_message['size']
+          self.available_bytes -= message['size']
         try:
           self.SendPeerMessage(message)
         except:
