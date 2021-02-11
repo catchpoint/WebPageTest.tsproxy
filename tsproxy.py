@@ -615,6 +615,7 @@ class CommandProcessor():
     global REMOVE_TCP_OVERHEAD
     global port_mappings
     global server
+    global must_exit
     if len(input):
       ok = False
       try:
@@ -651,6 +652,9 @@ class CommandProcessor():
               ok = True
             if command[1].lower() == 'mapports' or command[1].lower() == 'all':
               port_mappings = {}
+              ok = True
+          elif command[0].lower() == 'exit':
+              must_exit = True
               ok = True
 
           if ok:
