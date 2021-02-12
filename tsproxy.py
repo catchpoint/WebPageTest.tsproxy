@@ -59,7 +59,7 @@ except Exception:
 def PrintMessage(msg):
   # Print the message to stdout & flush to make sure that the message is not
   # buffered when tsproxy is run as a subprocess.
-  sys.stdout.write(msg)
+  sys.stdout.write(msg + '\n')
   sys.stdout.flush()
 
 ########################################################################################################################
@@ -721,7 +721,7 @@ def main():
   # Parse any port mappings
   if options.mapports:
     SetPortMappings(options.mapports)
-  
+
   if options.nodnscache:
     dns_cache = None
 
